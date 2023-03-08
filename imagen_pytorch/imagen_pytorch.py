@@ -12,6 +12,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
+from torch.distributed.fsdp import FullyShardedDataParallel
 from torch import nn, einsum
 from torch.cuda.amp import autocast
 from torch.special import expm1
@@ -2477,7 +2478,7 @@ class Imagen(nn.Module):
     @beartype
     def p_losses(
         self,
-        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel, FullyShardedDataParallel],
         x_start,
         times,
         *,
@@ -2555,7 +2556,7 @@ class Imagen(nn.Module):
         # Because 'unet' can be an instance of DistributedDataParallel coming from the
         # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
         # access the member 'module' of the wrapped unet instance.
-        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet.self_cond
+        self_cond = unet.module.self_cond if isinstance(unet, (DistributedDataParallel, FullyShardedDataParallel)) else unet.self_cond
 
         if self_cond and random() < 0.5:
             with torch.no_grad():
@@ -2608,7 +2609,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images, # rename to images or video
-        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel, FullyShardedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
