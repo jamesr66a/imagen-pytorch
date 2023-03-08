@@ -1155,6 +1155,7 @@ class Unet(nn.Module):
         resize_mode = 'nearest',
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True,       # may address checkboard artifacts
+        use_checkpoint = False,
     ):
         super().__init__()
 
@@ -1439,6 +1440,8 @@ class Unet(nn.Module):
 
         self.resize_mode = resize_mode
 
+        self.use_checkpoint = use_checkpoint
+
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
     def cast_model_parameters(
@@ -1520,6 +1523,30 @@ class Unet(nn.Module):
         return null_logits + (logits - null_logits) * cond_scale
 
     def forward(
+        self,
+        x,
+        time,
+        *,
+        lowres_cond_img = None,
+        lowres_noise_times = None,
+        text_embeds = None,
+        text_mask = None,
+        cond_images = None,
+        self_cond = None,
+        cond_drop_prob = 0.
+    ):
+        if self.use_checkpoint:
+            return torch.utils.checkpoint.checkpoint(self._forward, x, time, lowres_cond_img = lowres_cond_img,
+                                                    lowres_noise_times = lowres_noise_times, text_embeds = text_embeds,
+                                                    text_mask = text_mask, cond_images = cond_images,
+                                                    self_cond = self_cond, cond_drop_prob = cond_drop_prob,
+                                                    use_reentrant = False)
+        else:
+            return self._forward(x, time, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times,
+                                 text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images,
+                                 self_cond = self_cond, cond_drop_prob = cond_drop_prob)
+
+    def _forward(
         self,
         x,
         time,
