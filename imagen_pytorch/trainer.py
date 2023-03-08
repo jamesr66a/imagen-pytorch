@@ -293,7 +293,8 @@ class ImagenTrainer(nn.Module):
 
         # cast data to fp16 at training time if needed
 
-        self.cast_half_at_training = accelerator_mixed_precision == 'fp16'
+        # self.cast_half_at_training = accelerator_mixed_precision == 'fp16'
+        self.cast_half_at_training = False
 
         # grad scaler must be managed outside of accelerator
 
