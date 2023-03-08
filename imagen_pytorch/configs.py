@@ -61,6 +61,7 @@ class Unet3DConfig(AllowExtraBaseModel):
     channels:           int = 3
     attn_dim_head:      int = 32
     attn_heads:         int = 16
+    use_checkpoint:     bool = False
 
     def create(self):
         return Unet3D(**self.dict())
