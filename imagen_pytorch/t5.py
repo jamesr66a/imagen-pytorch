@@ -42,6 +42,9 @@ def get_model_and_tokenizer(name):
     if "tokenizer" not in T5_CONFIGS[name]:
         T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name)
 
+    # Sum up and print the number of parameters in the T5 model
+    print(f'T5 has {sum(p.numel() for p in T5_CONFIGS[name]["model"].parameters()) / 1000000}M parameters')
+
     return T5_CONFIGS[name]['model'], T5_CONFIGS[name]['tokenizer']
 
 def get_encoded_dim(name):

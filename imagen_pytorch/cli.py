@@ -117,6 +117,12 @@ def train(
     if torch.cuda.is_available():
         trainer = trainer.cuda()
 
+    # For each of `trainer.imagen.unets.{0,1,2}`, sum up the number of elements of
+    # each of their parameters and print the sum out individually
+    for i in range(3):
+        print(f'Unet {i} has {sum(p.numel() for p in trainer.imagen.unets[i].parameters()) / 1000000}M parameters')
+
+
     size = config_data['imagen']['image_sizes'][unet-1]
 
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
