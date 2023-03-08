@@ -48,9 +48,8 @@ class Collator:
             T.ToTensor(),
         ])
     def __call__(self, batch):
-
-        texts = []
         images = []
+        texts = []
         for item in batch:
             try:
                 if self.download:
@@ -61,20 +60,18 @@ class Collator:
             except:
                 continue
 
-            text = t5.t5_encode_text([item[self.text_label]], name=self.name)
-            texts.append(torch.squeeze(text))
+
+            texts.append(item[self.text_label])
             images.append(image)
 
-        if len(texts) == 0:
-            return None
-        
-        texts = pad_sequence(texts, True)
+        texts_tensor = t5.t5_encode_text(texts, name=self.name)
 
         newbatch = []
-        for i in range(len(texts)):
-            newbatch.append((images[i], texts[i]))
+        for i in range(len(texts_tensor)):
+            newbatch.append((images[i], texts_tensor[i].contiguous()))
 
-        return torch.utils.data.dataloader.default_collate(newbatch)
+        rv = torch.utils.data.dataloader.default_collate(newbatch)
+        return rv
 
     def fetch_single_image(self, image_url, timeout=1):
         try:
