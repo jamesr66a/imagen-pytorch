@@ -47,9 +47,12 @@ class Collator:
             T.CenterCrop(image_size),
             T.ToTensor(),
         ])
+
+        self._random_image = self.transform(Image.new(channels, (image_size, image_size)))
+
     def __call__(self, batch):
         images = []
-        valid_texts = []
+        texts = []
         for item in batch:
             try:
                 if self.download:
@@ -58,22 +61,22 @@ class Collator:
                     image = item[self.image_label]
                 image = self.transform(image.convert(self.channels))
             except:
-                continue
+                image = self._random_image
 
             if item[self.text_label] is None:
-                print(f'No text for {item[self.url_label]}')
-                continue
+                item[self.text_label] = ''
 
-            valid_texts.append(item[self.text_label])
+            texts.append(item[self.text_label])
             images.append(image)
 
-        texts_tensor = t5.t5_encode_text(valid_texts, name=self.name)
+        texts_tensor = t5.t5_encode_text(texts, name=self.name)
 
         newbatch = []
         for i in range(len(texts_tensor)):
             newbatch.append((images[i], texts_tensor[i].contiguous()))
 
         rv = torch.utils.data.dataloader.default_collate(newbatch)
+        print('Created batch', rv[0].shape, rv[1].shape)
         return rv
 
     def fetch_single_image(self, image_url, timeout=1):
