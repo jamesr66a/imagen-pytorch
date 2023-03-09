@@ -34,6 +34,8 @@ from accelerate import Accelerator, DistributedType, DistributedDataParallelKwar
 from fsspec.core import url_to_fs
 from fsspec.implementations.local import LocalFileSystem
 
+from imagen_pytorch.flop_counter import FlopCounterMode
+
 import time
 
 # helper functions
@@ -182,6 +184,8 @@ def split_args_and_kwargs(*args, split_size = None, **kwargs):
 
     split_all_args = [split(arg, split_size = split_size) if exists(arg) and isinstance(arg, (torch.Tensor, Iterable)) else ((arg,) * num_chunks) for arg in all_args]
     chunk_sizes = num_to_groups(batch_size, split_size)
+
+    print('split batch into sizes', chunk_sizes)
 
     for (chunk_size, *chunked_all_args) in tuple(zip(chunk_sizes, *split_all_args)):
         chunked_args, chunked_kwargs_values = chunked_all_args[:split_kwargs_index], chunked_all_args[split_kwargs_index:]
@@ -628,17 +632,19 @@ class ImagenTrainer(nn.Module):
         return loss
 
     def step_with_dl_iter(self, dl_iter, **kwargs):
-        s = time.time()
-        s_dataload = time.time()
-        dl_tuple_output = cast_tuple(next(dl_iter))
-        model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
-        e_dataload = time.time()
-        s_forward = time.time()
-        loss = self.forward(**{**kwargs, **model_input})
-        e_forward = time.time()
-        e = time.time()
-        self.print(f'dataload: {e_dataload - s_dataload:.2f}s, forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
-        self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
+        flop_counter = FlopCounterMode(self.imagen)
+        with flop_counter:
+            s = time.time()
+            s_dataload = time.time()
+            dl_tuple_output = cast_tuple(next(dl_iter))
+            model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
+            e_dataload = time.time()
+            s_forward = time.time()
+            loss = self.forward(**{**kwargs, **model_input})
+            e_forward = time.time()
+            e = time.time()
+            self.print(f'dataload: {e_dataload - s_dataload:.2f}s, forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
+            self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
         return loss
 
     # checkpointing functions
@@ -986,6 +992,8 @@ class ImagenTrainer(nn.Module):
         self.set_accelerator_scaler(unet_number)
 
         assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, f'you can only train unet #{self.only_train_unet_number}'
+
+        torch.backends.cudnn.benchmark = False
 
         total_loss = 0.
 
