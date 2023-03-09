@@ -59,6 +59,7 @@ class Collator:
                     image = self.fetch_single_image(item[self.url_label])
                 else:
                     image = item[self.image_label]
+                
                 image = self.transform(image.convert(self.channels))
             except:
                 image = self._random_image
@@ -69,14 +70,13 @@ class Collator:
             texts.append(item[self.text_label])
             images.append(image)
 
-        texts_tensor = t5.t5_encode_text(texts, name=self.name)
+        input_ids, attn_mask = t5.t5_tokenize(valid_texts, name=self.name)
 
         newbatch = []
-        for i in range(len(texts_tensor)):
-            newbatch.append((images[i], texts_tensor[i].contiguous()))
+        for i in range(len(input_ids)):
+            newbatch.append((images[i], input_ids[i], attn_mask[i]))
 
         rv = torch.utils.data.dataloader.default_collate(newbatch)
-        print('Created batch', rv[0].shape, rv[1].shape)
         return rv
 
     def fetch_single_image(self, image_url, timeout=1):

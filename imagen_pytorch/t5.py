@@ -68,11 +68,6 @@ def t5_tokenize(
 ):
     t5, tokenizer = get_model_and_tokenizer(name)
 
-    if torch.cuda.is_available():
-        t5 = t5.cuda()
-
-    device = next(t5.parameters()).device
-
     encoded = tokenizer.batch_encode_plus(
         texts,
         return_tensors = "pt",
@@ -81,8 +76,8 @@ def t5_tokenize(
         truncation = True
     )
 
-    input_ids = encoded.input_ids.to(device)
-    attn_mask = encoded.attention_mask.to(device)
+    input_ids = encoded.input_ids
+    attn_mask = encoded.attention_mask
     return input_ids, attn_mask
 
 def t5_encode_tokenized_text(
@@ -93,6 +88,7 @@ def t5_encode_tokenized_text(
 ):
     assert exists(attn_mask) or exists(pad_id)
     t5, _ = get_model_and_tokenizer(name)
+    t5 = t5.cuda()
 
     attn_mask = default(attn_mask, lambda: (token_ids != pad_id).long())
 
@@ -113,10 +109,11 @@ def t5_encode_text(
     return_attn_mask = False
 ):
     token_ids, attn_mask = t5_tokenize(texts, name = name)
+
     encoded_text = t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name = name)
 
     if return_attn_mask:
         attn_mask = attn_mask.bool()
         return encoded_text, attn_mask
-
+    
     return encoded_text

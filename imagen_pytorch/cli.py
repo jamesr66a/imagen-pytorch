@@ -66,7 +66,7 @@ def sample(
 def config(
     path
 ):
-    data = pkgutil.get_data(__name__, 'default_config.json').decode("utf-8") 
+    data = pkgutil.get_data(__name__, 'default_config.json').decode("utf-8")
     with open(path, 'w') as f:
         f.write(data)
 
@@ -88,15 +88,15 @@ def train(
     config_path = Path(config)
     full_config_path = str(config_path.resolve())
     assert config_path.exists(), f'config not found at {full_config_path}'
-    
+
     with open(config_path, 'r') as f:
         config_data = json.loads(f.read())
 
     assert 'checkpoint_path' in config_data, 'checkpoint path not found in config'
-    
+
     model_path = Path(config_data['checkpoint_path'])
     full_model_path = str(model_path.resolve())
-    
+
     # setup imagen config
 
     imagen_config_klass = ElucidatedImagenConfig if config_data['type'] == 'elucidated' else ImagenConfig
@@ -113,7 +113,7 @@ def train(
         version = safeget(loaded, 'version')
         print(f'loading Imagen from {full_model_path}, saved at version {version} - current package version is {__version__}')
         trainer.load(model_path)
-        
+
     if torch.cuda.is_available():
         trainer = trainer.cuda()
 
@@ -121,7 +121,6 @@ def train(
     # each of their parameters and print the sum out individually
     for i in range(3):
         print(f'Unet {i} has {sum(p.numel() for p in trainer.imagen.unets[i].parameters()) / 1000000}M parameters')
-
 
     size = config_data['imagen']['image_sizes'][unet-1]
 
@@ -171,7 +170,7 @@ def train(
                 text_label= config_data['text_label'],
                 url_label = config_data['url_label'],
                 name = imagen.text_encoder_name,
-                channels = channels 
+                channels = channels
             ),
             **config_data['dataset']
         )
