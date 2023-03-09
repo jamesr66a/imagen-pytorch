@@ -1443,6 +1443,31 @@ class Unet(nn.Module):
 
         self.use_checkpoint = use_checkpoint
 
+        if self.use_checkpoint:
+            class CheckpointWrapper(torch.nn.Module):
+                def __init__(self, module):
+                    super().__init__()
+                    self.module = module
+
+                def forward(self, *args, **kwargs):
+                    return torch.utils.checkpoint.checkpoint(self.module, *args, **kwargs, use_reentrant=False)
+
+            for down in self.downs:
+                for ind, layer in enumerate(down):
+                    if isinstance(layer, nn.ModuleList):
+                        for ind2, layer2 in enumerate(layer):
+                            layer[ind2] = CheckpointWrapper(layer2) if layer2 else None
+                    else:
+                        down[ind] = CheckpointWrapper(layer) if layer else None
+
+            for up in self.ups:
+                for ind, layer in enumerate(up):
+                    if isinstance(layer, nn.ModuleList):
+                        for ind2, layer2 in enumerate(layer):
+                            layer[ind2] = CheckpointWrapper(layer2) if layer2 else None
+                    else:
+                        up[ind] = CheckpointWrapper(layer) if layer else None
+
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
     def cast_model_parameters(
@@ -1524,30 +1549,6 @@ class Unet(nn.Module):
         return null_logits + (logits - null_logits) * cond_scale
 
     def forward(
-        self,
-        x,
-        time,
-        *,
-        lowres_cond_img = None,
-        lowres_noise_times = None,
-        text_embeds = None,
-        text_mask = None,
-        cond_images = None,
-        self_cond = None,
-        cond_drop_prob = 0.
-    ):
-        if self.use_checkpoint:
-            return torch.utils.checkpoint.checkpoint(self._forward, x, time, lowres_cond_img = lowres_cond_img,
-                                                    lowres_noise_times = lowres_noise_times, text_embeds = text_embeds,
-                                                    text_mask = text_mask, cond_images = cond_images,
-                                                    self_cond = self_cond, cond_drop_prob = cond_drop_prob,
-                                                    use_reentrant = False)
-        else:
-            return self._forward(x, time, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times,
-                                 text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images,
-                                 self_cond = self_cond, cond_drop_prob = cond_drop_prob)
-
-    def _forward(
         self,
         x,
         time,
