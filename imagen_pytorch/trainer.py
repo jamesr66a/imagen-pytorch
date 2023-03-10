@@ -38,6 +38,8 @@ from fsspec.implementations.local import LocalFileSystem
 
 from imagen_pytorch.flop_counter import FlopCounterMode
 
+from contextlib import nullcontext
+
 import time
 
 # helper functions
@@ -634,7 +636,7 @@ class ImagenTrainer(nn.Module):
         return loss
 
     def step_with_dl_iter(self, dl_iter, **kwargs):
-        flop_counter = FlopCounterMode(self.imagen)
+        flop_counter = FlopCounterMode(self.imagen) if torch.distributed.get_rank() == 0 else nullcontext()
         with flop_counter:
             s = time.time()
 
@@ -647,10 +649,12 @@ class ImagenTrainer(nn.Module):
             dl_tuple_output = (images, embs)
 
             model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
+            torch.cuda.synchronize()
             e_dataload = time.time()
 
             s_forward = time.time()
             loss = self.forward(**{**kwargs, **model_input})
+            torch.cuda.synchronize()
             e_forward = time.time()
 
             e = time.time()
