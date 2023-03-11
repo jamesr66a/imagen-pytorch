@@ -25,27 +25,32 @@ T5_CONFIGS = {}
 # singleton globals
 
 def get_tokenizer(name):
-    tokenizer = T5Tokenizer.from_pretrained(name, model_max_length=MAX_LENGTH)
+    if name not in T5_CONFIGS:
+        T5_CONFIGS[name] = dict()
+
+    if "tokenizer" not in T5_CONFIGS[name]:
+        tokenizer = T5Tokenizer.from_pretrained(name, model_max_length=MAX_LENGTH)
+        T5_CONFIGS[name]["tokenizer"] = tokenizer
+    else:
+        tokenizer = T5_CONFIGS[name]["tokenizer"]
+
     return tokenizer
 
 def get_model(name):
-    model = T5EncoderModel.from_pretrained(name)
-    return model
-
-def get_model_and_tokenizer(name):
-    global T5_CONFIGS
-
     if name not in T5_CONFIGS:
         T5_CONFIGS[name] = dict()
+
     if "model" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["model"] = get_model(name)
-    if "tokenizer" not in T5_CONFIGS[name]:
-        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name)
+        print('Loading T5 model...')
+        model = T5EncoderModel.from_pretrained(name)
+        if torch.cuda.is_available():
+            model = model.cuda()
+        T5_CONFIGS[name]["model"] = model
+        print('T5 model loaded.')
+    else:
+        model = T5_CONFIGS[name]["model"]
 
-    # Sum up and print the number of parameters in the T5 model
-    # print(f'T5 has {sum(p.numel() for p in T5_CONFIGS[name]["model"].parameters()) / 1000000}M parameters')
-
-    return T5_CONFIGS[name]['model'], T5_CONFIGS[name]['tokenizer']
+    return model
 
 def get_encoded_dim(name):
     if name not in T5_CONFIGS:
@@ -66,7 +71,7 @@ def t5_tokenize(
     texts: List[str],
     name = DEFAULT_T5_NAME
 ):
-    t5, tokenizer = get_model_and_tokenizer(name)
+    tokenizer = get_tokenizer(name)
 
     encoded = tokenizer.batch_encode_plus(
         texts,
@@ -77,31 +82,44 @@ def t5_tokenize(
     )
 
     input_ids = encoded.input_ids
-    attn_mask = encoded.attention_mask
+    attn_mask = encoded.attention_mask.bool()
+
     return input_ids, attn_mask
 
 def t5_encode_tokenized_text(
     token_ids,
     attn_mask = None,
     pad_id = None,
-    name = DEFAULT_T5_NAME
+    name = DEFAULT_T5_NAME,
+    batch_size=None
 ):
+    batch_size = batch_size or len(token_ids)
+    assert batch_size > 0
+    assert len(token_ids) % batch_size == 0
+
     assert exists(attn_mask) or exists(pad_id)
-    t5, _ = get_model_and_tokenizer(name)
-    t5 = t5.cuda()
+    
+    t5 = get_model(name)
 
     attn_mask = default(attn_mask, lambda: (token_ids != pad_id).long())
 
+    assert len(attn_mask) % batch_size == 0
+
     t5.eval()
 
-    with torch.no_grad():
-        output = t5(input_ids = token_ids, attention_mask = attn_mask)
-        encoded_text = output.last_hidden_state.detach()
+    for idx in range(0, len(token_ids), batch_size):
+        with torch.no_grad():
+            output = t5(input_ids = token_ids[idx:idx+batch_size], attention_mask = attn_mask[idx:idx+batch_size])
+            encoded_text = output.last_hidden_state.detach()
+            if idx == 0:
+                all_encoded_text = encoded_text
+            else:
+                # TODO: dumb inefficient implementation. Prefer to preallocate output tensor
+                # and write into slices of it
+                all_encoded_text = torch.cat((all_encoded_text, encoded_text), dim=0)
 
-    attn_mask = attn_mask.bool()
-
-    encoded_text = encoded_text.masked_fill(~rearrange(attn_mask, '... -> ... 1'), 0.) # just force all embeddings that is padding to be equal to 0.
-    return encoded_text
+    all_encoded_text = all_encoded_text.masked_fill(~rearrange(attn_mask, '... -> ... 1'), 0.) # just force all embeddings that is padding to be equal to 0.
+    return all_encoded_text
 
 def t5_encode_text(
     texts: List[str],

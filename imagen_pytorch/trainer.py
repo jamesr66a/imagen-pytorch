@@ -583,7 +583,7 @@ class ImagenTrainer(nn.Module):
             ds, valid_ds = random_split(ds, [train_size, valid_size], generator = torch.Generator().manual_seed(self.split_random_seed))
             self.print(f'training with dataset of {len(ds)} samples and validating with randomly splitted {len(valid_ds)} samples')
 
-        dl = DataLoader(ds, batch_size = batch_size, num_workers=4, pin_memory=True, **dl_kwargs)
+        dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
         self.add_train_dataloader(dl)
 
         if not self.split_valid_from_train:
@@ -645,7 +645,8 @@ class ImagenTrainer(nn.Module):
             images, token_ids, attn_mask = dl_tuple_output
             token_ids = token_ids.cuda(non_blocking=True)
             attn_mask = attn_mask.cuda(non_blocking=True)
-            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name)
+            t5_batch_size = kwargs.pop('t5_batch_size', None)
+            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
             dl_tuple_output = (images, embs)
 
             model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))

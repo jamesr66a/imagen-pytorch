@@ -175,8 +175,10 @@ def train(
             **config_data['dataset']
         )
 
+    t5_batch_size = config_data['t5_batch_size'] if 't5_batch_size' in config_data else None
+
     for i in range(epoches):
-        loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
+        loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size, t5_batch_size = t5_batch_size)
         print(f'loss: {loss}')
 
         if valid != 0 and not (i % valid) and i > 0:
