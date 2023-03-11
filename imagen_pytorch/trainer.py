@@ -643,15 +643,17 @@ class ImagenTrainer(nn.Module):
             s_dataload = time.time()
             dl_tuple_output = cast_tuple(next(dl_iter))
             images, token_ids, attn_mask = dl_tuple_output
+            e_dataload = time.time()
+
+            s_t5 = time.time()
             token_ids = token_ids.cuda(non_blocking=True)
             attn_mask = attn_mask.cuda(non_blocking=True)
             t5_batch_size = kwargs.pop('t5_batch_size', None)
             embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
             dl_tuple_output = (images, embs)
-
             model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
             torch.cuda.synchronize()
-            e_dataload = time.time()
+            e_t5 = time.time()
 
             s_forward = time.time()
             loss = self.forward(**{**kwargs, **model_input})
@@ -659,7 +661,7 @@ class ImagenTrainer(nn.Module):
             e_forward = time.time()
 
             e = time.time()
-            self.print(f'dataload: {e_dataload - s_dataload:.2f}s, forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
+            self.print(f'dataload: {e_dataload - s_dataload:.2f}s, t5: {e_t5 - s_t5:.2f} forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
             self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
         return loss
 
