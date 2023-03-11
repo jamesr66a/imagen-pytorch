@@ -42,7 +42,7 @@ def get_model(name):
 
     if "model" not in T5_CONFIGS[name]:
         print('Loading T5 model...')
-        model = T5EncoderModel.from_pretrained(name)
+        model = T5EncoderModel.from_pretrained(name, torch_dtype=torch.bfloat16)
         if torch.cuda.is_available():
             model = model.cuda()
         T5_CONFIGS[name]["model"] = model
