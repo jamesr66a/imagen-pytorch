@@ -109,8 +109,13 @@ def t5_encode_tokenized_text(
 
     for idx in range(0, len(token_ids), batch_size):
         with torch.no_grad():
-            output = t5(input_ids = token_ids[idx:idx+batch_size], attention_mask = attn_mask[idx:idx+batch_size])
-            encoded_text = output.last_hidden_state.detach()
+            # with torch.autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu', dtype=torch.bfloat16):
+            token_ids_slice = token_ids[idx:idx+batch_size]
+            attn_mask_slice = attn_mask[idx:idx+batch_size]
+            output = t5(input_ids = token_ids_slice, attention_mask = attn_mask_slice)
+            encoded_text = output.last_hidden_state.detach().float()
+            # Check if any values are NaN in encoded_text
+            assert not torch.isnan(encoded_text).any()
             if idx == 0:
                 all_encoded_text = encoded_text
             else:
