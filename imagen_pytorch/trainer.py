@@ -651,11 +651,15 @@ class ImagenTrainer(nn.Module):
         e_dataload = time.time()
 
         s_t5 = time.time()
-        token_ids = token_ids.cuda(non_blocking=True)
-        attn_mask = attn_mask.cuda(non_blocking=True)
         t5_batch_size = kwargs.pop('t5_batch_size', None)
-        embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
-        dl_tuple_output = (images, embs)
+        if self.imagen.condition_on_text:
+            token_ids = token_ids.cuda(non_blocking=True)
+            attn_mask = attn_mask.cuda(non_blocking=True)
+            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
+            dl_tuple_output = (images, embs)
+        else:
+            dl_tuple_output = (images,)
+
         model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
         torch.cuda.synchronize()
         e_t5 = time.time()
