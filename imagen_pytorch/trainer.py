@@ -265,6 +265,7 @@ class ImagenTrainer(nn.Module):
         fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
         use_lion = False,
+        count_flops = False,
         **kwargs
     ):
         super().__init__()
@@ -299,6 +300,7 @@ class ImagenTrainer(nn.Module):
             'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
 
+
         ImagenTrainer.locked = self.is_distributed
 
         # cast data to fp16 at training time if needed
@@ -311,8 +313,9 @@ class ImagenTrainer(nn.Module):
         grad_scaler_enabled = fp16
 
         # imagen, unets and ema unets
+        # automatic set devices based on what accelerator decided
 
-        self.imagen = imagen
+        self.imagen = imagen.to(self.device)
         self.num_unets = len(self.imagen.unets)
 
         self.use_ema = use_ema and self.is_main
@@ -346,6 +349,7 @@ class ImagenTrainer(nn.Module):
 
         lr, eps, warmup_steps, cosine_decay_max_steps = map(partial(cast_tuple, length = self.num_unets), (lr, eps, warmup_steps, cosine_decay_max_steps))
 
+        optimizer_kwargs, kwargs = groupby_prefix_and_trim('optimizer_', kwargs)
         for ind, (unet, unet_lr, unet_eps, unet_warmup_steps, unet_cosine_decay_max_steps) in enumerate(zip(self.imagen.unets, lr, eps, warmup_steps, cosine_decay_max_steps)):
 
             if use_lion:
@@ -361,11 +365,11 @@ class ImagenTrainer(nn.Module):
                     lr = unet_lr,
                     eps = unet_eps,
                     betas = (beta1, beta2),
-                    **kwargs
+                    **optimizer_kwargs
                 )
 
             if self.use_ema:
-                self.ema_unets.append(EMA(unet, **ema_kwargs))
+                self.ema_unets.append(EMA(unet, **ema_kwargs).to(self.device))
 
             scaler = GradScaler(enabled = grad_scaler_enabled)
 
@@ -393,14 +397,9 @@ class ImagenTrainer(nn.Module):
 
         # step tracker and misc
 
-        self.register_buffer('steps', torch.tensor([0] * self.num_unets))
+        self.register_buffer('steps', torch.tensor([0] * self.num_unets, device=self.device))
 
         self.verbose = verbose
-
-        # automatic set devices based on what accelerator decided
-
-        self.imagen.to(self.device)
-        self.to(self.device)
 
         # checkpointing
 
@@ -423,7 +422,7 @@ class ImagenTrainer(nn.Module):
 
         self.only_train_unet_number = only_train_unet_number
         self.prepared = False
-
+        self.count_flops = count_flops
 
     def prepare(self):
         assert not self.prepared, f'The trainer is allready prepared'
@@ -636,34 +635,39 @@ class ImagenTrainer(nn.Module):
         return loss
 
     def step_with_dl_iter(self, dl_iter, **kwargs):
-        flop_counter = FlopCounterMode(self.imagen) if torch.distributed.get_rank() == 0 else nullcontext()
-        with flop_counter:
-            s = time.time()
+        if self.count_flops:
+            flop_counter = FlopCounterMode(self.imagen) if torch.distributed.get_rank() == 0 else nullcontext()
+            with flop_counter:
+                return self._step_with_dl_iter(dl_iter, **kwargs)
+        else:
+            return self._step_with_dl_iter(dl_iter, **kwargs)
 
-            s_dataload = time.time()
-            dl_tuple_output = cast_tuple(next(dl_iter))
-            images, token_ids, attn_mask = dl_tuple_output
-            e_dataload = time.time()
+    def _step_with_dl_iter(self, dl_iter, **kwargs):
+        s = time.time()
 
-            s_t5 = time.time()
-            token_ids = token_ids.cuda(non_blocking=True)
-            attn_mask = attn_mask.cuda(non_blocking=True)
-            t5_batch_size = kwargs.pop('t5_batch_size', None)
-            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
-            dl_tuple_output = (images, embs)
-            model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
-            torch.cuda.synchronize()
-            e_t5 = time.time()
+        s_dataload = time.time()
+        dl_tuple_output = cast_tuple(next(dl_iter))
+        images, token_ids, attn_mask = dl_tuple_output
+        e_dataload = time.time()
 
-            s_forward = time.time()
-            loss = self.forward(**{**kwargs, **model_input})
-            torch.cuda.synchronize()
-            e_forward = time.time()
+        s_t5 = time.time()
+        token_ids = token_ids.cuda(non_blocking=True)
+        attn_mask = attn_mask.cuda(non_blocking=True)
+        t5_batch_size = kwargs.pop('t5_batch_size', None)
+        embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
+        dl_tuple_output = (images, embs)
+        model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
+        torch.cuda.synchronize()
+        e_t5 = time.time()
 
-            e = time.time()
-            self.print(f'dataload: {e_dataload - s_dataload:.2f}s, t5: {e_t5 - s_t5:.2f} forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
-            self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
-        return loss
+        s_forward = time.time()
+        loss = self.forward(**{**kwargs, **model_input})
+        torch.cuda.synchronize()
+        e_forward = time.time()
+
+        e = time.time()
+        self.print(f'dataload: {e_dataload - s_dataload:.2f}s, t5: {e_t5 - s_t5:.2f} forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
+        self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
 
     # checkpointing functions
 

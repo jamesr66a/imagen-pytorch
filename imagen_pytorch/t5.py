@@ -3,6 +3,7 @@ import transformers
 from typing import List
 from transformers import T5Tokenizer, T5EncoderModel, T5Config
 from einops import rearrange
+import time
 
 transformers.logging.set_verbosity_error()
 
@@ -42,7 +43,11 @@ def get_model(name):
 
     if "model" not in T5_CONFIGS[name]:
         print('Loading T5 model...')
+        s = time.time()
         model = T5EncoderModel.from_pretrained(name, torch_dtype=torch.bfloat16)
+        e = time.time()
+        print(f"T5 model loaded in {int(e-s)}s")
+
         if torch.cuda.is_available():
             model = model.cuda()
         T5_CONFIGS[name]["model"] = model
