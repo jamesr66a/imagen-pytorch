@@ -189,8 +189,6 @@ def split_args_and_kwargs(*args, split_size = None, **kwargs):
     split_all_args = [split(arg, split_size = split_size) if exists(arg) and isinstance(arg, (torch.Tensor, Iterable)) else ((arg,) * num_chunks) for arg in all_args]
     chunk_sizes = num_to_groups(batch_size, split_size)
 
-    print('split batch into sizes', chunk_sizes)
-
     for (chunk_size, *chunked_all_args) in tuple(zip(chunk_sizes, *split_all_args)):
         chunked_args, chunked_kwargs_values = chunked_all_args[:split_kwargs_index], chunked_all_args[split_kwargs_index:]
         chunked_kwargs = dict(tuple(zip(dict_keys, chunked_kwargs_values)))
@@ -266,6 +264,8 @@ class ImagenTrainer(nn.Module):
         max_checkpoints_keep = 20,
         use_lion = False,
         count_flops = False,
+        t5_only = False,
+        t5_fuser_backend = "none",
         **kwargs
     ):
         super().__init__()
@@ -423,6 +423,8 @@ class ImagenTrainer(nn.Module):
         self.only_train_unet_number = only_train_unet_number
         self.prepared = False
         self.count_flops = count_flops
+        self.t5_only = t5_only
+        self.t5_fuser_backend = t5_fuser_backend
 
     def prepare(self):
         assert not self.prepared, f'The trainer is allready prepared'
@@ -620,7 +622,8 @@ class ImagenTrainer(nn.Module):
             self.prepare()
         self.create_train_iter()
         loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, **kwargs)
-        self.update(unet_number = unet_number)
+        if not self.t5_only:
+            self.update(unet_number = unet_number)
         return loss
 
     @torch.no_grad()
@@ -643,37 +646,23 @@ class ImagenTrainer(nn.Module):
             return self._step_with_dl_iter(dl_iter, **kwargs)
 
     def _step_with_dl_iter(self, dl_iter, **kwargs):
-        s = time.time()
-
-        s_dataload = time.time()
         dl_tuple_output = cast_tuple(next(dl_iter))
         images, token_ids, attn_mask = dl_tuple_output
-        e_dataload = time.time()
 
-        s_t5 = time.time()
-        t5_batch_size = kwargs.pop('t5_batch_size', None)
         if self.imagen.condition_on_text:
+            t5_batch_size = kwargs.pop('t5_batch_size', None)
             token_ids = token_ids.cuda(non_blocking=True)
-            attn_mask = attn_mask.cuda(non_blocking=True)
-            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size)
+            attn_mask = attn_mask.cuda(non_blocking=True)        
+            embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size, fuser_backend=self.t5_fuser_backend)
             dl_tuple_output = (images, embs)
         else:
             dl_tuple_output = (images,)
 
-        model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
-        torch.cuda.synchronize()
-        e_t5 = time.time()
-
-        s_forward = time.time()
-        loss = self.forward(**{**kwargs, **model_input})
-        torch.cuda.synchronize()
-        e_forward = time.time()
-
-        e = time.time()
-        self.print(f'dataload: {e_dataload - s_dataload:.2f}s, t5: {e_t5 - s_t5:.2f} forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
-        self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
-
-        return loss
+        if self.t5_only:
+            return None
+        else:
+            model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
+            return self.forward(**{**kwargs, **model_input})
 
     # checkpointing functions
 
@@ -1034,8 +1023,5 @@ class ImagenTrainer(nn.Module):
 
             if self.training:
                 self.accelerator.backward(loss)
-
-        if torch.distributed.get_rank() == 0:
-            print(torch.cuda.memory_summary())
 
         return total_loss

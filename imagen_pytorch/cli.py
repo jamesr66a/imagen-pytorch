@@ -2,6 +2,7 @@ import click
 import torch
 from pathlib import Path
 import pkgutil
+import time
 
 from imagen_pytorch import load_imagen_from_checkpoint
 from imagen_pytorch.version import __version__
@@ -177,9 +178,33 @@ def train(
 
     t5_batch_size = config_data['t5_batch_size'] if 't5_batch_size' in config_data else None
 
+
+    measure_every_n = 10
+    if "measure_every_n" in config_data:
+        measure_every_n = config_data["measure_every_n"]
+    warmup_iters = 2
+    if "warmup_iters" in config_data:
+        warmup_iters = config_data["warmup_iters"]
+
     for i in range(epoches):
         loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size, t5_batch_size = t5_batch_size)
-        print(f'loss: {loss}')
+        print(f"Step #{i}")
+
+        report = False
+        if i >= warmup_iters:
+            if i == warmup_iters:
+                s_ns = time.perf_counter_ns()
+            iters = i - warmup_iters
+            if iters > 0 and iters % measure_every_n == 0:
+                report = True
+        if report:
+            print(f'Loss: {loss}') # this will cause D&H sync
+            e_ns = time.perf_counter_ns()
+            delta_ns = (e_ns - s_ns) // t5_batch_size // measure_every_n
+            s_ns = e_ns
+            print(f'Time/sample: {delta_ns // 1000}us')
+            if torch.distributed.get_rank() == 0:
+                print(torch.cuda.memory_summary())
 
         if valid != 0 and not (i % valid) and i > 0:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
