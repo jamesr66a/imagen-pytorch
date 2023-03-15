@@ -673,6 +673,8 @@ class ImagenTrainer(nn.Module):
         self.print(f'dataload: {e_dataload - s_dataload:.2f}s, t5: {e_t5 - s_t5:.2f} forward: {e_forward - s_forward:.2f}s, total: {e - s:.2f}s')
         self.print(f'Batch size/GPU: {len(dl_tuple_output[0])} Examples per second: {len(dl_tuple_output[0]) / (e - s):.2f}')
 
+        return loss
+
     # checkpointing functions
 
     @property
