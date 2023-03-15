@@ -188,7 +188,6 @@ def train(
 
     for i in range(epoches):
         loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size, t5_batch_size = t5_batch_size)
-        print(f"Step #{i}")
 
         report = False
         if i >= warmup_iters:
