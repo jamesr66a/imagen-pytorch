@@ -1838,7 +1838,8 @@ class Imagen(nn.Module):
         only_train_unet_number = None,
         temporal_downsample_factor = 1,
         resize_cond_video_frames = True,
-        resize_mode = 'nearest'
+        resize_mode = 'nearest',
+        use_nhwc = False,
     ):
         super().__init__()
 
@@ -1999,6 +2000,8 @@ class Imagen(nn.Module):
         # default to device of unets passed in
 
         self.to(next(self.unets.parameters()).device)
+
+        self.use_nhwc = use_nhwc
 
     def force_unconditional_(self):
         self.condition_on_text = False

@@ -658,6 +658,9 @@ class ImagenTrainer(nn.Module):
         else:
             dl_tuple_output = (images,)
 
+        if self.imagen.use_nhwc:
+            dl_tuple_output = (dl_tuple_output[0].to(memory_format=torch.channels_last),) + dl_tuple_output[1:]
+
         if self.t5_only:
             return None
         else:
