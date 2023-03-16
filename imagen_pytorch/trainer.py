@@ -657,6 +657,10 @@ class ImagenTrainer(nn.Module):
         dl_tuple_output = cast_tuple(next(dl_iter))
         images, token_ids, attn_mask = dl_tuple_output
 
+        if self.t5_fuser_backend == "inductor":
+            torch._functorch.config.use_dynamic_shapes = True
+            torch._dynamo.config.dynamic_shapes = True
+
         if self.imagen.condition_on_text:
             t5_batch_size = kwargs.pop('t5_batch_size', None)
             token_ids = token_ids.cuda(non_blocking=True)
@@ -668,6 +672,10 @@ class ImagenTrainer(nn.Module):
 
         if self.imagen.use_nhwc:
             dl_tuple_output = (dl_tuple_output[0].to(memory_format=torch.channels_last),) + dl_tuple_output[1:]
+
+        if self.t5_fuser_backend == "inductor":
+            torch._functorch.config.use_dynamic_shapes = False
+            torch._dynamo.config.dynamic_shapes = False
 
         if self.t5_only:
             return None
