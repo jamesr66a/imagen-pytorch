@@ -4,15 +4,12 @@ from typing import List
 from transformers import T5Tokenizer, T5EncoderModel, T5Config
 from einops import rearrange
 import time
-from functorch.compile import aot_module, ts_compile, default_decompositions
 import torch.utils._pytree as pytree
-from  torch import _dynamo as dynamo
 from functools import partial
 import torch._dynamo.backends.nvfuser as nvfuser
-from torch import _inductor as inductor
 from torch._inductor import compile_fx
-from torch._inductor import decomposition
 from torch.autograd.profiler import record_function
+from imagen_pytorch.compile import compile_module
 
 transformers.logging.set_verbosity_error()
 
@@ -83,21 +80,9 @@ def get_model(name, fuser_backend):
             pytree._odict_flatten,
             lambda values, context: transformers.modeling_outputs.BaseModelOutputWithPastAndCrossAttentions(pytree._odict_unflatten(values, context)),
         )
-                
+
         print(f"Using {fuser_backend} fuser backend for T5")
-        if fuser_backend == "nvfuser":
-            partition_fn = nvfuser.nvprims_fw_bw_partition_fn
-            model = aot_module(model, fw_compiler=compiler_nvfuser, bw_compiler=compiler_nvfuser, decompositions=default_decompositions,partition_fn=partition_fn)
-        elif fuser_backend == "inductor":
-            torch._functorch.config.use_dynamic_shapes = True
-            torch._dynamo.config.dynamic_shapes = True
-            model = aot_module(model, fw_compiler=compiler_inductor, bw_compiler=compiler_inductor, decompositions=decomposition.fast_random_decomps())
-        elif fuser_backend == "passthrough":
-            model = aot_module(model, fw_compiler=print_fn, bw_compiler=print_fn, decompositions=default_decompositions)
-        elif fuser_backend == "none":
-            pass
-        else:
-            raise ValueError(f"invalid fuser_backend {fuser_backend}")
+        model = compile_module(backend=fuser_backend, module=model, dynamic_shapes=True)
 
         T5_CONFIGS[name]["model"] = model
     else:

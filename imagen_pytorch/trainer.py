@@ -19,10 +19,11 @@ from torch.cuda.amp import autocast, GradScaler
 
 import pytorch_warmup as warmup
 
-from imagen_pytorch.imagen_pytorch import Imagen, NullUnet
+from imagen_pytorch.imagen_pytorch import Imagen, NullUnet, ResnetBlock, TransformerBlock, PerceiverResampler
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.data import cycle
 from imagen_pytorch import t5
+from imagen_pytorch.compile import compile_class
 
 from imagen_pytorch.version import __version__
 from packaging import version
@@ -266,6 +267,7 @@ class ImagenTrainer(nn.Module):
         count_flops = False,
         t5_only = False,
         t5_fuser_backend = "none",
+        unet_fuser_backend = "none",
         **kwargs
     ):
         super().__init__()
@@ -286,6 +288,12 @@ class ImagenTrainer(nn.Module):
         # elucidated or not
 
         self.is_elucidated = isinstance(imagen, ElucidatedImagen)
+
+        # compiler
+        print(f"Using {unet_fuser_backend} fuser backend for Unets")
+        compile_class(module=imagen, clazz=ResnetBlock, backend=unet_fuser_backend)
+        compile_class(module=imagen, clazz=TransformerBlock, backend=unet_fuser_backend)
+        compile_class(module=imagen, clazz=PerceiverResampler, backend=unet_fuser_backend)
 
         # create accelerator instance
 
@@ -1007,6 +1015,9 @@ class ImagenTrainer(nn.Module):
         max_batch_size = None,
         **kwargs
     ):
+        torch._dynamo.config.dynamic_shapes = False
+
+
         unet_number = self.validate_unet_number(unet_number)
         self.validate_and_set_unet_being_trained(unet_number)
         self.set_accelerator_scaler(unet_number)
