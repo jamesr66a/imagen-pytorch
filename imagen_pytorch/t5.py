@@ -84,6 +84,9 @@ def get_model(name, fuser_backend):
         print(f"Using {fuser_backend} fuser backend for T5")
         model = compile_module(backend=fuser_backend, module=model, dynamic_shapes=True)
 
+        import apex
+        model = apex.amp.initialize(model, opt_level="O2", keep_batchnorm_fp32=True, loss_scale="dynamic")
+
         T5_CONFIGS[name]["model"] = model
     else:
         model = T5_CONFIGS[name]["model"]

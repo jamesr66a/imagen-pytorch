@@ -434,6 +434,8 @@ class ImagenTrainer(nn.Module):
         self.t5_only = t5_only
         self.t5_fuser_backend = t5_fuser_backend
 
+        self.apex_initialized = False
+
     def prepare(self):
         assert not self.prepared, f'The trainer is allready prepared'
         self.validate_and_set_unet_being_trained(self.only_train_unet_number)
@@ -1025,6 +1027,21 @@ class ImagenTrainer(nn.Module):
     ):
         torch._dynamo.config.dynamic_shapes = False
 
+        if not self.apex_initialized:
+            # Initialize imagen and all `optim*` with apex.amp.initialize
+            import apex
+            model, optims = apex.amp.initialize(
+                self.imagen,
+                [getattr(self, f'optim{i}') for i in range(len(self.imagen.unets))],
+                opt_level = 'O2',
+                verbosity = 0)
+
+            self.imagen = model
+            for i, optim in enumerate(optims):
+                setattr(self, f'optim{i}', optim)
+
+            self.apex_initialized = True
+
 
         unet_number = self.validate_unet_number(unet_number)
         self.validate_and_set_unet_being_trained(unet_number)
@@ -1037,9 +1054,9 @@ class ImagenTrainer(nn.Module):
         total_loss = 0.
 
         for chunk_size_frac, (chunked_args, chunked_kwargs) in split_args_and_kwargs(*args, split_size = max_batch_size, **kwargs):
-            with self.accelerator.autocast():
-                loss = self.imagen(*chunked_args, unet = self.unet_being_trained, unet_number = unet_number, **chunked_kwargs)
-                loss = loss * chunk_size_frac
+            # with self.accelerator.autocast():
+            loss = self.imagen(*chunked_args, unet = self.unet_being_trained, unet_number = unet_number, **chunked_kwargs)
+            loss = loss * chunk_size_frac
 
             total_loss += loss.item()
 
