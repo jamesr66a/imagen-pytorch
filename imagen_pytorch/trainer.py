@@ -268,6 +268,7 @@ class ImagenTrainer(nn.Module):
         t5_only = False,
         t5_fuser_backend = "none",
         unet_fuser_backend = "none",
+        unet_only = False,
         **kwargs
     ):
         super().__init__()
@@ -433,6 +434,7 @@ class ImagenTrainer(nn.Module):
         self.count_flops = count_flops
         self.t5_only = t5_only
         self.t5_fuser_backend = t5_fuser_backend
+        self.unet_only = unet_only
 
     def prepare(self):
         assert not self.prepared, f'The trainer is allready prepared'
@@ -657,15 +659,15 @@ class ImagenTrainer(nn.Module):
         dl_tuple_output = cast_tuple(next(dl_iter))
         images, token_ids, attn_mask = dl_tuple_output
 
-        if self.imagen.condition_on_text:
-            t5_batch_size = kwargs.pop('t5_batch_size', None)
+        t5_batch_size = kwargs.pop('t5_batch_size', None)
+        if self.unet_only:
+            embs = torch.randn((t5_batch_size, 256, 4096), device=self.device, dtype=torch.bfloat16)
+        else:
             token_ids = token_ids.cuda(non_blocking=True)
             attn_mask = attn_mask.cuda(non_blocking=True)        
             embs = t5.t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name=self.imagen.text_encoder_name, batch_size=t5_batch_size, fuser_backend=self.t5_fuser_backend)
-            dl_tuple_output = (images, embs)
-        else:
-            dl_tuple_output = (images,)
-
+        
+        dl_tuple_output = (images, embs)
         if self.imagen.use_nhwc:
             dl_tuple_output = (dl_tuple_output[0].to(memory_format=torch.channels_last),) + dl_tuple_output[1:]
 

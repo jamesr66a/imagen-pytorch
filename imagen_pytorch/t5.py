@@ -72,6 +72,11 @@ def get_model(name, fuser_backend):
         e = time.time()
         print(f"T5 model loaded in {int(e-s)}s")
 
+        num_params = 0
+        for p in model.parameters():
+            num_params += p.numel()
+        print(f"T5 has {num_params//1000_000:2f}M parameters")
+
         if torch.cuda.is_available():
             model = model.cuda()
 
@@ -82,7 +87,7 @@ def get_model(name, fuser_backend):
         )
 
         print(f"Using {fuser_backend} fuser backend for T5")
-        model = compile_module(backend=fuser_backend, module=model, dynamic_shapes=True)
+        model = compile_module(backend=fuser_backend, module=model, dynamic_shapes=False)
 
         T5_CONFIGS[name]["model"] = model
     else:
@@ -114,9 +119,9 @@ def t5_tokenize(
     encoded = tokenizer.batch_encode_plus(
         texts,
         return_tensors = "pt",
-        padding = 'longest',
+        padding = 'max_length',
         max_length = MAX_LENGTH,
-        truncation = True
+        truncation = True,
     )
 
     input_ids = encoded.input_ids
